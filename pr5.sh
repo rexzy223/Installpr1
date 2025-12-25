@@ -56,7 +56,7 @@ class NestController extends Controller
         // 🔒 Proteksi: hanya user ID 1 (superadmin) yang bisa akses menu Nest
         $user = Auth::user();
         if (!$user || $user->id !== 1) {
-            abort(403, '🚫 Akses ditolak! Hanya admin ID 1 yang dapat membuka menu Nest! ©Protect By @Rexzystr.');
+            abort(403, '🚫 Akses ditolak! Hanya admin ID 1 yang dapat membuka menu Nest.');
         }
 
         return $this->view->make('admin.nests.index', [
