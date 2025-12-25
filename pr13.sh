@@ -1,157 +1,97 @@
 #!/bin/bash
 
-REMOTE_PATH="/var/www/pterodactyl/app/Http/Controllers/Admin/MountController.php"
-BACKUP_PATH="/var/www/pterodactyl/app/Http/Controllers/Admin/MountController.php.bak.$(date +%s)"
+REMOTE_PATH="/var/www/pterodactyl/app/Http/Controllers/Api/Client/ApiKeyController.php"
+BACKUP_PATH="/var/www/pterodactyl/app/Http/Controllers/Api/Client/ApiKeyController.php.bak.$(date +%s)"
 
-echo "🚀 Memasang Proteksi Anti Intip Mounts..."
+echo "🚀 Memasang proteksi Anti Create PLTC..."
 
-# Backup file lama jika ada
 if [ -f "$REMOTE_PATH" ]; then
   mv "$REMOTE_PATH" "$BACKUP_PATH"
   echo "📦 Backup file lama dibuat di $BACKUP_PATH"
 fi
 
-# Buat direktori & set permission
 mkdir -p "$(dirname "$REMOTE_PATH")"
 chmod 755 "$(dirname "$REMOTE_PATH")"
 
-# Tulis kode PHP
-cat > "$REMOTE_PATH" << 'PHP'
+cat > "$REMOTE_PATH" <<'PHP'
 <?php
 
-namespace Pterodactyl\Http\Controllers\Admin;
+namespace Pterodactyl\Http\Controllers\Api\Client;
 
-use Ramsey\Uuid\Uuid;
-use Illuminate\View\View;
-use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Auth;
-use Pterodactyl\Models\Nest;
-use Pterodactyl\Models\Mount;
-use Pterodactyl\Models\Location;
-use Illuminate\Http\RedirectResponse;
-use Prologue\Alerts\AlertsMessageBag;
-use Illuminate\View\Factory as ViewFactory;
-use Pterodactyl\Http\Controllers\Controller;
-use Pterodactyl\Http\Requests\Admin\MountFormRequest;
-use Pterodactyl\Repositories\Eloquent\MountRepository;
-use Pterodactyl\Contracts\Repository\NestRepositoryInterface;
-use Pterodactyl\Contracts\Repository\LocationRepositoryInterface;
+use Pterodactyl\Models\ApiKey;
+use Illuminate\Http\JsonResponse;
+use Pterodactyl\Facades\Activity;
+use Pterodactyl\Exceptions\DisplayException;
+use Pterodactyl\Http\Requests\Api\Client\ClientApiRequest;
+use Pterodactyl\Transformers\Api\Client\ApiKeyTransformer;
+use Pterodactyl\Http\Requests\Api\Client\Account\StoreApiKeyRequest;
 
-class MountController extends Controller
+class ApiKeyController extends ClientApiController
 {
-    public function __construct(
-        protected AlertsMessageBag $alert,
-        protected NestRepositoryInterface $nestRepository,
-        protected LocationRepositoryInterface $locationRepository,
-        protected MountRepository $repository,
-        protected ViewFactory $view
-    ) {}
-
-    private function checkAdminAccess()
+    private function protectAccess($user)
     {
-        $user = Auth::user();
         if (!$user || $user->id !== 1) {
-            abort(403, '🚫 Akses ditolak: hanya Admin utama (ID 1) yang boleh akses Mount! ©Protect By @Rexzystr');
+            abort(403, '🚫 Akses ditolak: Hanya Admin ID 1 yang dapat mengelola API Key! ©Protect By @Rexzystr.');
         }
     }
 
-    private function globalProtect()
+    public function index(ClientApiRequest $request): array
     {
-        $this->checkAdminAccess();
+        $user = $request->user();
+        $this->protectAccess($user);
+
+        return $this->fractal->collection($user->apiKeys)
+            ->transformWith($this->getTransformer(ApiKeyTransformer::class))
+            ->toArray();
     }
 
-    public function index(): View
+    public function store(StoreApiKeyRequest $request): array
     {
-        $this->globalProtect();
-        return $this->view->make('admin.mounts.index', [
-            'mounts' => $this->repository->getAllWithDetails(),
-        ]);
-    }
+        $user = $request->user();
+        $this->protectAccess($user);
 
-    public function view(string $id): View
-    {
-        $this->globalProtect();
-        $nests = Nest::query()->with('eggs')->get();
-        $locations = Location::query()->with('nodes')->get();
-
-        return $this->view->make('admin.mounts.view', [
-            'mount' => $this->repository->getWithRelations($id),
-            'nests' => $nests,
-            'locations' => $locations,
-        ]);
-    }
-
-    public function create(MountFormRequest $request): RedirectResponse
-    {
-        $this->globalProtect();
-
-        $model = (new Mount())->fill($request->validated());
-        $model->forceFill(['uuid' => Uuid::uuid4()->toString()]);
-        $model->saveOrFail();
-        $mount = $model->fresh();
-
-        $this->alert->success('Mount was created successfully.')->flash();
-        return redirect()->route('admin.mounts.view', $mount->id);
-    }
-
-    public function update(MountFormRequest $request, Mount $mount): RedirectResponse
-    {
-        $this->globalProtect();
-
-        if ($request->input('action') === 'delete') {
-            return $this->delete($mount);
+        if ($user->apiKeys->count() >= 25) {
+            throw new DisplayException('❌ Batas maksimal API Key tercapai (maksimum 25).');
         }
 
-        $mount->forceFill($request->validated())->save();
-        $this->alert->success('Mount was updated successfully.')->flash();
-        return redirect()->route('admin.mounts.view', $mount->id);
+        $token = $user->createToken(
+            $request->input('description'),
+            $request->input('allowed_ips')
+        );
+
+        Activity::event('user:api-key.create')
+            ->subject($token->accessToken)
+            ->property('identifier', $token->accessToken->identifier)
+            ->log();
+
+        return $this->fractal->item($token->accessToken)
+            ->transformWith($this->getTransformer(ApiKeyTransformer::class))
+            ->addMeta(['secret_token' => $token->plainTextToken])
+            ->toArray();
     }
 
-    public function delete(Mount $mount): RedirectResponse
+    public function delete(ClientApiRequest $request, string $identifier): JsonResponse
     {
-        $this->globalProtect();
-        $mount->delete();
-        return redirect()->route('admin.mounts');
-    }
+        $user = $request->user();
+        $this->protectAccess($user);
 
-    public function addEggs(Request $request, Mount $mount): RedirectResponse
-    {
-        $this->globalProtect();
-        $data = $request->validate(['eggs' => 'required|exists:eggs,id']);
-        if (count($data['eggs']) > 0) $mount->eggs()->attach($data['eggs']);
-        $this->alert->success('Mount was updated successfully.')->flash();
-        return redirect()->route('admin.mounts.view', $mount->id);
-    }
+        $key = $user->apiKeys()
+            ->where('key_type', ApiKey::TYPE_ACCOUNT)
+            ->where('identifier', $identifier)
+            ->firstOrFail();
 
-    public function addNodes(Request $request, Mount $mount): RedirectResponse
-    {
-        $this->globalProtect();
-        $data = $request->validate(['nodes' => 'required|exists:nodes,id']);
-        if (count($data['nodes']) > 0) $mount->nodes()->attach($data['nodes']);
-        $this->alert->success('Mount was updated successfully.')->flash();
-        return redirect()->route('admin.mounts.view', $mount->id);
-    }
+        Activity::event('user:api-key.delete')
+            ->property('identifier', $key->identifier)
+            ->log();
 
-    public function deleteEgg(Mount $mount, int $egg_id): Response
-    {
-        $this->globalProtect();
-        $mount->eggs()->detach($egg_id);
-        return response('', 204);
-    }
+        $key->delete();
 
-    public function deleteNode(Mount $mount, int $node_id): Response
-    {
-        $this->globalProtect();
-        $mount->nodes()->detach($node_id);
-        return response('', 204);
+        return new JsonResponse([], JsonResponse::HTTP_NO_CONTENT);
     }
 }
 PHP
 
-chmod 644 "$REMOTE_PATH"
-
-echo "✅ Proteksi Anti Intip Mounts berhasil dipasang!"
+echo "✅ Proteksi Anti Create PLTC berhasil dipasang!"
 echo "📂 Lokasi file: $REMOTE_PATH"
 echo "🗂️ Backup file lama: $BACKUP_PATH (jika sebelumnya ada)"
-echo "🔒 Hanya Admin ID 1 dapat membuka menu Mounts."
+echo "🔒 Hanya Admin (ID 1) yang bisa membuat PLTC / API Key."
