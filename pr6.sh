@@ -55,7 +55,7 @@ class IndexController extends Controller
         // 🔒 Anti akses menu Settings selain user ID 1
         $user = Auth::user();
         if (!$user || $user->id !== 1) {
-            abort(403, '🚫 Akses ditolak! Hanya admin ID 1 yang dapat membuka menu Settings! ©Protect By @Rexzystr.');
+            abort(403, '🚫 Akses ditolak! Hanya admin ID 1 yang dapat membuka menu Settings.');
         }
 
         return $this->view->make('admin.settings.index', [
