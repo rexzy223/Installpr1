@@ -4,18 +4,19 @@ REMOTE_PATH="/var/www/pterodactyl/app/Http/Controllers/Admin/UserController.php"
 TIMESTAMP=$(date -u +"%Y-%m-%d-%H-%M-%S")
 BACKUP_PATH="${REMOTE_PATH}.bak_${TIMESTAMP}"
 
-echo "🚀 Memasang proteksi UserController.php anti hapus dan anti ubah data user..."
+echo "🚀 Memasang proteksi anti Intip User Lain & Cadmin Manual..."
 
-# Backup file lama jika ada
+# Backup file lama
 if [ -f "$REMOTE_PATH" ]; then
   mv "$REMOTE_PATH" "$BACKUP_PATH"
-  echo "📦 Backup file lama dibuat di $BACKUP_PATH"
+  echo "📦 Backup dibuat: $BACKUP_PATH"
 fi
 
+# Pastikan folder ada
 mkdir -p "$(dirname "$REMOTE_PATH")"
-chmod 755 "$(dirname "$REMOTE_PATH")"
 
-cat > "$REMOTE_PATH" <<'EOF'
+# Tulis file PHP
+cat > "$REMOTE_PATH" << 'EOF'
 <?php
 
 namespace Pterodactyl\Http\Controllers\Admin;
@@ -39,13 +40,11 @@ use Pterodactyl\Services\Users\UserDeletionService;
 use Pterodactyl\Http\Requests\Admin\UserFormRequest;
 use Pterodactyl\Http\Requests\Admin\NewUserFormRequest;
 use Pterodactyl\Contracts\Repository\UserRepositoryInterface;
+
 class UserController extends Controller
 {
     use AvailableLanguages;
 
-    /**
-     * UserController constructor.
-     */
     public function __construct(
         protected AlertsMessageBag $alert,
         protected UserCreationService $creationService,
@@ -57,19 +56,23 @@ class UserController extends Controller
     ) {
     }
 
-    /**
-     * Display user index page.
-     */
     public function index(Request $request): View
     {
-        $users = QueryBuilder::for(
-            User::query()->select('users.*')
-                ->selectRaw('COUNT(DISTINCT(subusers.id)) as subuser_of_count')
-                ->selectRaw('COUNT(DISTINCT(servers.id)) as servers_count')
-                ->leftJoin('subusers', 'subusers.user_id', '=', 'users.id')
-                ->leftJoin('servers', 'servers.owner_id', '=', 'users.id')
-                ->groupBy('users.id')
-        )
+        $authUser = $request->user();
+
+        $query = User::query()
+            ->select('users.*')
+            ->selectRaw('COUNT(DISTINCT(subusers.id)) as subuser_of_count')
+            ->selectRaw('COUNT(DISTINCT(servers.id)) as servers_count')
+            ->leftJoin('subusers', 'subusers.user_id', '=', 'users.id')
+            ->leftJoin('servers', 'servers.owner_id', '=', 'users.id')
+            ->groupBy('users.id');
+
+        if ($authUser->id !== 1) {
+            $query->where('users.id', $authUser->id);
+        }
+
+        $users = QueryBuilder::for($query)
             ->allowedFilters(['username', 'email', 'uuid'])
             ->allowedSorts(['id', 'uuid'])
             ->paginate(50);
@@ -77,9 +80,6 @@ class UserController extends Controller
         return $this->view->make('admin.users.index', ['users' => $users]);
     }
 
-    /**
-     * Display new user page.
-     */
     public function create(): View
     {
         return $this->view->make('admin.users.new', [
@@ -87,9 +87,6 @@ class UserController extends Controller
         ]);
     }
 
-    /**
-     * Display user view page.
-     */
     public function view(User $user): View
     {
         return $this->view->make('admin.users.view', [
@@ -98,52 +95,45 @@ class UserController extends Controller
         ]);
     }
 
-    /**
-     * Delete a user from the system.
-     *
-     * @throws Exception
-     * @throws PterodactylExceptionsDisplayException
-     */
     public function delete(Request $request, User $user): RedirectResponse
     {
-        // === FITUR TAMBAHAN: Proteksi hapus user ===
-        if ($request->user()->id !== 1) {
-            throw new DisplayException("🚫 ANTI DELETED - KEAMANAN BY @REXZYSTR");
-        }
-        // ============================================
+        $authUser = $request->user();
 
-        if ($request->user()->id === $user->id) {
-            throw new DisplayException($this->translator->get('admin/user.exceptions.user_has_servers'));
+        if ($authUser->id !== 1) {
+            throw new DisplayException("🚫 Akses ditolak: hanya admin ID 1 yang dapat menghapus user!");
+        }
+
+        if ($authUser->id === $user->id) {
+            throw new DisplayException("❌ Tidak bisa menghapus akun Anda sendiri.");
         }
 
         $this->deletionService->handle($user);
 
+        $this->alert->success("🗑️ User berhasil dihapus.")->flash();
         return redirect()->route('admin.users');
     }
 
-    /**
-     * Create a user.
-     *
-     * @throws Exception
-     * @throws Throwable
-     */
     public function store(NewUserFormRequest $request): RedirectResponse
     {
-        $user = $this->creationService->handle($request->normalize());
-        $this->alert->success($this->translator->get('admin/user.notices.account_created'))->flash();
+        $authUser = $request->user();
+        $data = $request->normalize();
 
+        if ($authUser->id !== 1 && isset($data['root_admin']) && $data['root_admin'] == true) {
+            throw new DisplayException("🚫 Akses ditolak: Hanya admin ID 1 yang dapat membuat user admin!.");
+        }
+
+        if ($authUser->id !== 1) {
+            $data['root_admin'] = false;
+        }
+
+        $user = $this->creationService->handle($data);
+
+        $this->alert->success("✅ Akun user berhasil dibuat (level: user biasa).")->flash();
         return redirect()->route('admin.users.view', $user->id);
     }
 
-    /**
-     * Update a user on the system.
-     *
-     * @throws PterodactylExceptionsModelDataValidationException
-     * @throws PterodactylExceptionsRepositoryRecordNotFoundException
-     */
     public function update(UserFormRequest $request, User $user): RedirectResponse
     {
-        // === FITUR TAMBAHAN: Proteksi ubah data penting ===
         $restrictedFields = ['email', 'first_name', 'last_name', 'password'];
 
         foreach ($restrictedFields as $field) {
@@ -152,39 +142,49 @@ class UserController extends Controller
             }
         }
 
-        // Cegah turunkan level admin ke user biasa
         if ($user->root_admin && $request->user()->id !== 1) {
-            throw new DisplayException("🚫 Tidak dapat menurunkan hak admin pengguna ini. Hanya ID 1 yang memiliki izin.");
+            throw new DisplayException("🚫 Akses ditolak: Hanya admin ID 1 yang dapat menurunkan hak admin user ini!");
         }
-        // ====================================================
+
+        if ($request->user()->id !== 1 && $request->user()->id !== $user->id) {
+            throw new DisplayException("🚫 Akses ditolak: Hanya admin ID 1 yang dapat mengubah data user lain!");
+        }
+
+        $data = $request->normalize();
+        if ($request->user()->id !== 1) {
+            unset($data['root_admin']);
+        }
 
         $this->updateService
             ->setUserLevel(User::USER_LEVEL_ADMIN)
-            ->handle($user, $request->normalize());
+            ->handle($user, $data);
 
         $this->alert->success(trans('admin/user.notices.account_updated'))->flash();
-
         return redirect()->route('admin.users.view', $user->id);
     }
 
-    /**
-     * Get a JSON response of users on the system.
-     */
     public function json(Request $request): Model|Collection
     {
-        $users = QueryBuilder::for(User::query())->allowedFilters(['email'])->paginate(25);
+        $authUser = $request->user();
+        $query = QueryBuilder::for(User::query())->allowedFilters(['email']);
 
-        // Handle single user requests.
+        if ($authUser->id !== 1) {
+            $query->where('id', $authUser->id);
+        }
+
+        $users = $query->paginate(25);
+
         if ($request->query('user_id')) {
             $user = User::query()->findOrFail($request->input('user_id'));
+            if ($authUser->id !== 1 && $authUser->id !== $user->id) {
+                throw new DisplayException("🚫 Akses ditolak: Hanya admin ID 1 yang dapat melihat data user lain!");
+            }
             $user->md5 = md5(strtolower($user->email));
-
             return $user;
         }
 
         return $users->map(function ($item) {
             $item->md5 = md5(strtolower($item->email));
-
             return $item;
         });
     }
@@ -192,6 +192,7 @@ class UserController extends Controller
 EOF
 
 chmod 644 "$REMOTE_PATH"
-echo "✅ Proteksi Anti dell & Anti edit data berhasil dipasang!"
-echo "📂 Lokasi file: $REMOTE_PATH"
-echo "🗂️ Backup file lama: $BACKUP_PATH"
+
+echo "✅ Proteksi Anti Intip User Lain & Cadmin Manual berhasil di pasang!"
+echo "📂 File: $REMOTE_PATH"
+echo "🗂️ Backup: $BACKUP_PATH"
