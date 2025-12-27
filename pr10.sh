@@ -44,7 +44,7 @@ class TwoFactorController extends ClientApiController
     public function index(Request $request): JsonResponse
     {
         if ($request->user()->id !== 1) {
-            abort(403, '🚫 Kasihan gabisa yaaa? 😹 Hanya Admin utama (ID 1) yang dapat mengatur Two-Step Verification. ©Protect By @Rexzystr');
+            abort(403, '🚫 Kasihan gabisa yaaa? 😹 Hanya Admin utama (ID 1) yang dapat mengatur Two-Step Verification.');
         }
 
         if ($request->user()->use_totp) {
@@ -59,7 +59,7 @@ class TwoFactorController extends ClientApiController
     public function store(Request $request): JsonResponse
     {
         if ($request->user()->id !== 1) {
-            abort(403, '🚫 Kasihan gabisa yaaa? 😹 Hanya Admin utama (ID 1) yang dapat mengaktifkan Two-Step Verification. ©Protect By @Rexzystr');
+            abort(403, '🚫 Kasihan gabisa yaaa? 😹 Hanya Admin utama (ID 1) yang dapat mengaktifkan Two-Step Verification.');
         }
 
         $validator = $this->validation->make($request->all(), [
@@ -84,7 +84,7 @@ class TwoFactorController extends ClientApiController
     public function delete(Request $request): JsonResponse
     {
         if ($request->user()->id !== 1) {
-            abort(403, '🚫 Kasihan gabisa yaaa? 😹 Hanya Admin utama (ID 1) yang dapat menonaktifkan Two-Step Verification. ©Protect By @Rexzystr');
+            abort(403, '🚫 Kasihan gabisa yaaa? 😹 Hanya Admin utama (ID 1) yang dapat menonaktifkan Two-Step Verification.');
         }
 
         if (!password_verify($request->input('password') ?? '', $request->user()->password)) {
