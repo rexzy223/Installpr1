@@ -1,20 +1,23 @@
 #!/bin/bash
 
-REMOTE_PATH="/var/www/pterodactyl/app/Http/Controllers/Admin/Nests/NestController.php"
+BASE="/var/www/pterodactyl/app/Http/Controllers/Admin/Nests"
 TIMESTAMP=$(date -u +"%Y-%m-%d-%H-%M-%S")
-BACKUP_PATH="${REMOTE_PATH}.bak_${TIMESTAMP}"
 
-echo "🚀 Memasang proteksi Anti Akses Nest..."
+echo "🚀 Memasang proteksi Anti Akses Nest & Egg..."
 
-if [ -f "$REMOTE_PATH" ]; then
-  mv "$REMOTE_PATH" "$BACKUP_PATH"
-  echo "📦 Backup file lama dibuat di $BACKUP_PATH"
+mkdir -p "$BASE"
+chmod 755 "$BASE"
+
+# ===================== NestController =====================
+NEST_PATH="$BASE/NestController.php"
+NEST_BACKUP="${NEST_PATH}.bak_${TIMESTAMP}"
+
+if [ -f "$NEST_PATH" ]; then
+  mv "$NEST_PATH" "$NEST_BACKUP"
+  echo "📦 Backup NestController: $NEST_BACKUP"
 fi
 
-mkdir -p "$(dirname "$REMOTE_PATH")"
-chmod 755 "$(dirname "$REMOTE_PATH")"
-
-cat > "$REMOTE_PATH" << 'EOF'
+cat > "$NEST_PATH" << 'EOF'
 <?php
 
 namespace Pterodactyl\Http\Controllers\Admin\Nests;
@@ -29,13 +32,10 @@ use Pterodactyl\Services\Nests\NestCreationService;
 use Pterodactyl\Services\Nests\NestDeletionService;
 use Pterodactyl\Contracts\Repository\NestRepositoryInterface;
 use Pterodactyl\Http\Requests\Admin\Nest\StoreNestFormRequest;
-use Illuminate\Support\Facades\Auth; // ✅ Tambahan
+use Illuminate\Support\Facades\Auth;
 
 class NestController extends Controller
 {
-    /**
-     * NestController constructor.
-     */
     public function __construct(
         protected AlertsMessageBag $alert,
         protected NestCreationService $nestCreationService,
@@ -43,20 +43,13 @@ class NestController extends Controller
         protected NestRepositoryInterface $repository,
         protected NestUpdateService $nestUpdateService,
         protected ViewFactory $view
-    ) {
-    }
+    ) {}
 
-    /**
-     * Render nest listing page.
-     *
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
-     */
     public function index(): View
     {
-        // 🔒 Proteksi: hanya user ID 1 (superadmin) yang bisa akses menu Nest
         $user = Auth::user();
-        if (!$user || $user->id !== 1) {
-            abort(403, '🚫 Akses ditolak! Hanya admin ID 1 yang dapat membuka menu Nest.');
+        if (!$user || (int) $user->id !== 1) {
+            abort(403, '🚫 Akses Nest hanya untuk Admin ID 1');
         }
 
         return $this->view->make('admin.nests.index', [
@@ -64,32 +57,19 @@ class NestController extends Controller
         ]);
     }
 
-    /**
-     * Render nest creation page.
-     */
     public function create(): View
     {
         return $this->view->make('admin.nests.new');
     }
 
-    /**
-     * Handle the storage of a new nest.
-     *
-     * @throws \Pterodactyl\Exceptions\Model\DataValidationException
-     */
     public function store(StoreNestFormRequest $request): RedirectResponse
     {
         $nest = $this->nestCreationService->handle($request->normalize());
-        $this->alert->success(trans('admin/nests.notices.created', ['name' => htmlspecialchars($nest->name)]))->flash();
+        $this->alert->success(trans('admin/nests.notices.created'))->flash();
 
         return redirect()->route('admin.nests.view', $nest->id);
     }
 
-    /**
-     * Return details about a nest including all the eggs and servers per egg.
-     *
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
-     */
     public function view(int $nest): View
     {
         return $this->view->make('admin.nests.view', [
@@ -97,12 +77,6 @@ class NestController extends Controller
         ]);
     }
 
-    /**
-     * Handle request to update a nest.
-     *
-     * @throws \Pterodactyl\Exceptions\Model\DataValidationException
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
-     */
     public function update(StoreNestFormRequest $request, int $nest): RedirectResponse
     {
         $this->nestUpdateService->handle($nest, $request->normalize());
@@ -111,11 +85,6 @@ class NestController extends Controller
         return redirect()->route('admin.nests.view', $nest);
     }
 
-    /**
-     * Handle request to delete a nest.
-     *
-     * @throws \Pterodactyl\Exceptions\Service\HasActiveServersException
-     */
     public function destroy(int $nest): RedirectResponse
     {
         $this->nestDeletionService->handle($nest);
@@ -126,9 +95,78 @@ class NestController extends Controller
 }
 EOF
 
-chmod 644 "$REMOTE_PATH"
+# ===================== EggController =====================
+EGG_PATH="$BASE/EggController.php"
+EGG_BACKUP="${EGG_PATH}.bak_${TIMESTAMP}"
 
-echo "✅ Proteksi Anti Akses Nest berhasil dipasang!"
-echo "📂 Lokasi file: $REMOTE_PATH"
-echo "🗂️ Backup file lama: $BACKUP_PATH (jika sebelumnya ada)"
-echo "🔒 Hanya Admin (ID 1) yang bisa Akses Nest."
+if [ -f "$EGG_PATH" ]; then
+  mv "$EGG_PATH" "$EGG_BACKUP"
+  echo "📦 Backup EggController: $EGG_BACKUP"
+fi
+
+cat > "$EGG_PATH" << 'EOF'
+<?php
+
+namespace Pterodactyl\Http\Controllers\Admin\Nests;
+
+use Illuminate\View\View;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\View\Factory as ViewFactory;
+use Prologue\Alerts\AlertsMessageBag;
+use Pterodactyl\Http\Controllers\Controller;
+use Pterodactyl\Services\Eggs\EggUpdateService;
+use Pterodactyl\Services\Eggs\EggCreationService;
+use Pterodactyl\Services\Eggs\EggDeletionService;
+use Pterodactyl\Contracts\Repository\EggRepositoryInterface;
+use Pterodactyl\Http\Requests\Admin\Egg\StoreEggFormRequest;
+
+class EggController extends Controller
+{
+    public function __construct(
+        protected AlertsMessageBag $alert,
+        protected EggCreationService $eggCreationService,
+        protected EggDeletionService $eggDeletionService,
+        protected EggRepositoryInterface $repository,
+        protected EggUpdateService $eggUpdateService,
+        protected ViewFactory $view
+    ) {
+        $this->middleware(function ($request, $next) {
+            $user = Auth::user();
+            if (!$user || (int) $user->id !== 1) {
+                abort(403, '🚫 Akses Egg hanya untuk Admin ID 1');
+            }
+            return $next($request);
+        });
+    }
+
+    public function view(int $nest, int $egg): View
+    {
+        return $this->view->make('admin.nests.eggs.view', [
+            'egg' => $this->repository->getWithCopyVariables($egg),
+            'nest' => $nest,
+        ]);
+    }
+
+    public function update(StoreEggFormRequest $request, int $nest, int $egg): RedirectResponse
+    {
+        $this->eggUpdateService->handle($egg, $request->normalize());
+        $this->alert->success(trans('admin/eggs.notices.updated'))->flash();
+
+        return redirect()->route('admin.nests.eggs.view', [$nest, $egg]);
+    }
+
+    public function destroy(int $nest, int $egg): RedirectResponse
+    {
+        $this->eggDeletionService->handle($egg);
+        $this->alert->success(trans('admin/eggs.notices.deleted'))->flash();
+
+        return redirect()->route('admin.nests.view', $nest);
+    }
+}
+EOF
+
+chmod 644 "$NEST_PATH" "$EGG_PATH"
+
+echo "✅ Proteksi Anti Akses Nest & Egg berhasil dipasang"
+echo "🔒 Hanya Admin ID 1 yang dapat mengakses Nest & Egg"
