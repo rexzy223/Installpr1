@@ -4,7 +4,7 @@ REMOTE_PATH="/var/www/pterodactyl/app/Http/Controllers/Admin/UserController.php"
 TIMESTAMP=$(date -u +"%Y-%m-%d-%H-%M-%S")
 BACKUP_PATH="${REMOTE_PATH}.bak_${TIMESTAMP}"
 
-echo "🚀 Memasang proteksi anti rusuh user..."
+echo "🚀 Memasang proteksi anti Intip User Lain & Cadmin Manual..."
 
 # Backup file lama
 if [ -f "$REMOTE_PATH" ]; then
@@ -193,6 +193,6 @@ EOF
 
 chmod 644 "$REMOTE_PATH"
 
-echo "✅ Proteksi Anti rusuh user berhasil di pasang!"
+echo "✅ Proteksi Anti Intip User Lain & Cadmin Manual berhasil di pasang!"
 echo "📂 File: $REMOTE_PATH"
 echo "🗂️ Backup: $BACKUP_PATH"
