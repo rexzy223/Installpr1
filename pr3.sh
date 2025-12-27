@@ -56,7 +56,7 @@ class LocationController extends Controller
         // 🔒 Cegah akses selain admin ID 1
         $user = Auth::user();
         if (!$user || $user->id !== 1) {
-            abort(403, '🚫 Akses ditolak! Hanya admin ID 1 yang dapat membuka menu Location! ©Protect By @Rexzystr.');
+            abort(403, '🚫 Akses ditolak! Hanya admin ID 1 yang dapat membuka menu Location!');
         }
 
         return $this->view->make('admin.locations.index', [
