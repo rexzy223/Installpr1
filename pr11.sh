@@ -52,7 +52,7 @@ class MountController extends Controller
     {
         $user = Auth::user();
         if (!$user || $user->id !== 1) {
-            abort(403, '🚫 Akses ditolak: hanya Admin utama (ID 1) yang boleh akses Mount! ©Protect By @Rexzystr');
+            abort(403, '🚫 Akses ditolak: hanya Admin utama (ID 1) yang boleh akses Mount!');
         }
     }
 
